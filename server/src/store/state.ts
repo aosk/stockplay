@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import {
   ASSET_TYPES,
   type Alert,
+  type AuditEntry,
   type AssetType,
   type EngineSettings,
   type HistoryPoint,
@@ -22,6 +23,8 @@ export interface AppState {
   controls: Record<AssetType, TypeControls>;
   engine: EngineSettings;
   alerts: Alert[];
+  /** The audit trail, newest first. Read by the auditor role. */
+  audit: AuditEntry[];
   history: HistoryPoint[];
   /** Epoch milliseconds of the simulated market clock. */
   simTime: number;
@@ -37,6 +40,7 @@ export interface AppState {
 export const MAX_HISTORY_POINTS = 720;
 export const MAX_ORDERS = 500;
 export const MAX_ALERTS = 200;
+export const MAX_AUDIT_ENTRIES = 1000;
 
 const DEFAULT_TARGETS: Record<AssetType, number> = {
   COMMON: 0.34,
@@ -87,6 +91,7 @@ export function createInitialState(now = new Date()): AppState {
     controls: defaultControls(),
     engine: defaultEngine(),
     alerts: [],
+    audit: [],
     history: [],
     simTime: now.getTime(),
     sessionMinutes: 0,
@@ -121,6 +126,7 @@ function reconcile(loaded: Partial<AppState>): AppState {
     controls,
     engine: { ...fresh.engine, ...loaded.engine },
     alerts: loaded.alerts ?? [],
+    audit: (loaded.audit ?? []).map((entry) => ({ ...entry, notes: entry.notes ?? [] })),
     history: loaded.history ?? [],
     simTime: loaded.simTime ?? fresh.simTime,
     sessionMinutes: loaded.sessionMinutes ?? 0,

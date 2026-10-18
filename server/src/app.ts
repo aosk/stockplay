@@ -3,6 +3,7 @@ import express, { type Express, type NextFunction, type Request, type Response }
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { identify } from './auth.js';
 import { EventBus } from './bus.js';
 import { createApiRouter, type ApiContext } from './routes/api.js';
 import type { AppState } from './store/state.js';
@@ -47,7 +48,8 @@ export function createApp(deps: AppDeps): Express {
     res.json({ ok: true, instruments: deps.state.instruments.length, clients: deps.bus.size });
   });
 
-  app.use('/api', createApiRouter(deps satisfies ApiContext));
+  // Every API request carries an identity; the router's guards read it.
+  app.use('/api', identify, createApiRouter(deps satisfies ApiContext));
 
   // In a production build the web bundle is served from the same origin, so the
   // dashboard works without a separate dev server.

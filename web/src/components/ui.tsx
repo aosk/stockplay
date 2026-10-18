@@ -112,6 +112,7 @@ export function SliderField({
   step,
   onChange,
   hint,
+  disabled,
 }: {
   label: string;
   value: number;
@@ -121,6 +122,7 @@ export function SliderField({
   step: number;
   onChange: (next: number) => void;
   hint?: string;
+  disabled?: boolean;
 }) {
   const id = `slider-${label.replace(/\W+/g, '-').toLowerCase()}`;
   return (
@@ -136,6 +138,7 @@ export function SliderField({
         max={max}
         step={step}
         value={value}
+        disabled={disabled}
         onChange={(e) => onChange(Number(e.target.value))}
       />
       {hint ? <span className="field-hint" style={{ gridColumn: '1 / -1' }}>{hint}</span> : null}
@@ -190,6 +193,16 @@ export function Banner({
         </button>
       ) : null}
     </div>
+  );
+}
+
+/** States plainly what the active role may not do, instead of leaving a
+ *  disabled control unexplained. */
+export function ReadOnlyNotice({ what, role }: { what: string; role: string }) {
+  return (
+    <p className="readonly-notice">
+      <span aria-hidden="true">🔒</span> {what} is read-only for the {role.toLowerCase()} role.
+    </p>
   );
 }
 

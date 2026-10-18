@@ -8,7 +8,16 @@ import type {
 } from '../../../shared/src/types.js';
 import { AlertList } from '../components/AlertList.js';
 import { FilterRow } from '../components/FilterRow.js';
-import { Banner, Card, Delta, SliderField, Switch, TypeBadge } from '../components/ui.js';
+import {
+  Banner,
+  Card,
+  Delta,
+  ReadOnlyNotice,
+  SliderField,
+  Switch,
+  TypeBadge,
+} from '../components/ui.js';
+import { ROLE_PROFILES } from '../../../shared/src/types.js';
 import { ASSET_TYPES, typeBlurb, typeColor, typeLabel } from '../lib/assetTypes.js';
 import { api, ApiError, type NewInstrument } from '../lib/api.js';
 import { clockTime, money, moneyCents, percent, shares } from '../lib/format.js';
@@ -36,6 +45,11 @@ export function ControlPage() {
   if (!store.portfolio || !store.engine) return <div className="empty">Loading controls…</div>;
 
   const visibleTypes = ASSET_TYPES.filter((type) => selected.has(type));
+  const canChangeAnything =
+    store.allows('trade') ||
+    store.allows('controls:manage') ||
+    store.allows('engine:manage') ||
+    store.allows('instruments:manage');
 
   return (
     <>
@@ -48,6 +62,15 @@ export function ControlPage() {
           </p>
         </div>
       </div>
+
+      {!canChangeAnything ? (
+        <Banner tone="info">
+          You are acting as <strong>{ROLE_PROFILES[store.role].label.toLowerCase()}</strong>. This
+          page is read-only for you — every control below is disabled, and the server refuses the
+          request even if one were sent. You can still acknowledge alerts and read the{' '}
+          <strong>Audit</strong> tab.
+        </Banner>
+      ) : null}
 
       <FilterRow selected={selected} onToggle={toggle} onSelectAll={selectAll} />
 
@@ -93,7 +116,8 @@ function TradeTicket({
   types: Set<AssetType>;
   onResult: (tone: 'ok' | 'error', text: string) => void;
 }) {
-  const { instruments, portfolio, controls } = useStore();
+  const { instruments, portfolio, controls, allows, role } = useStore();
+  const canTrade = allows('trade');
   const [instrumentId, setInstrumentId] = useState('');
   const [side, setSide] = useState<OrderSide>('BUY');
   const [quantity, setQuantity] = useState('10');
@@ -116,7 +140,9 @@ function TradeTicket({
   const typeControls = instrument ? controls.find((c) => c.type === instrument.type) : null;
   const cashAfter = (portfolio?.cash ?? 0) + (side === 'BUY' ? -notional : notional);
 
-  const disabledReason = !instrument
+  const disabledReason = !canTrade
+    ? `The ${ROLE_PROFILES[role].label.toLowerCase()} role cannot place orders.`
+    : !instrument
     ? 'No tradable instrument in the selected stock types.'
     : typeControls && !typeControls.tradingEnabled
       ? `Trading is off for ${typeLabel(instrument.type).toLowerCase()}.`
@@ -154,7 +180,7 @@ function TradeTicket({
             id="ticket-instrument"
             value={instrumentId}
             onChange={(e) => setInstrumentId(e.target.value)}
-            disabled={tradable.length === 0}
+            disabled={tradable.length === 0 || !canTrade}
           >
             {tradable.length === 0 ? <option value="">No instruments in this filter</option> : null}
             {tradable.map((i) => (
@@ -176,10 +202,20 @@ function TradeTicket({
               aria-labelledby="side-label"
               style={{ alignSelf: 'flex-start' }}
             >
-              <button type="button" aria-pressed={side === 'BUY'} onClick={() => setSide('BUY')}>
+              <button
+                type="button"
+                aria-pressed={side === 'BUY'}
+                disabled={!canTrade}
+                onClick={() => setSide('BUY')}
+              >
                 Buy
               </button>
-              <button type="button" aria-pressed={side === 'SELL'} onClick={() => setSide('SELL')}>
+              <button
+                type="button"
+                aria-pressed={side === 'SELL'}
+                disabled={!canTrade}
+                onClick={() => setSide('SELL')}
+              >
                 Sell
               </button>
             </div>
@@ -192,6 +228,7 @@ function TradeTicket({
               min="1"
               step="1"
               value={quantity}
+              disabled={!canTrade}
               onChange={(e) => setQuantity(e.target.value)}
             />
           </div>
@@ -216,7 +253,11 @@ function TradeTicket({
           </div>
         </dl>
 
-        {disabledReason ? <p className="field-hint">{disabledReason}</p> : null}
+        {!canTrade ? (
+          <ReadOnlyNotice what="The trade ticket" role={ROLE_PROFILES[role].label} />
+        ) : disabledReason ? (
+          <p className="field-hint">{disabledReason}</p>
+        ) : null}
 
         <button type="submit" className="btn btn-primary" disabled={busy || !!disabledReason}>
           {busy ? 'Working…' : `${side === 'BUY' ? 'Buy' : 'Sell'} ${shares(qty)} shares`}
@@ -235,7 +276,8 @@ function SimulationCard({
   engine: EngineSettings;
   onResult: (tone: 'ok' | 'error', text: string) => void;
 }) {
-  const { setEngine } = useStore();
+  const { setEngine, allows, role } = useStore();
+  const canManage = allows('engine:manage');
   const [draft, setDraft] = useState(engine);
   const timer = useRef<number | null>(null);
 
@@ -270,6 +312,7 @@ function SimulationCard({
       actions={
         <Switch
           checked={draft.running}
+          disabled={!canManage}
           onChange={(running) => push({ running }, true)}
           onLabel="Running"
           offLabel="Paused"
@@ -285,6 +328,7 @@ function SimulationCard({
           max={60}
           step={1}
           onChange={(minutesPerTick) => push({ minutesPerTick })}
+          disabled={!canManage}
           hint="A session is 390 simulated minutes. Mutual funds reprice once per session."
         />
         <SliderField
@@ -295,6 +339,7 @@ function SimulationCard({
           max={10000}
           step={250}
           onChange={(tickIntervalMs) => push({ tickIntervalMs })}
+          disabled={!canManage}
           hint="Wall-clock time between ticks."
         />
         <SliderField
@@ -305,6 +350,7 @@ function SimulationCard({
           max={3}
           step={0.05}
           onChange={(marketVolatility) => push({ marketVolatility })}
+          disabled={!canManage}
           hint="Multiplies every type's own volatility on top of its per-type factor."
         />
         <SliderField
@@ -315,8 +361,12 @@ function SimulationCard({
           max={1}
           step={0.05}
           onChange={(marketSentiment) => push({ marketSentiment })}
+          disabled={!canManage}
           hint="Shifts the drift of every instrument, bearish through bullish."
         />
+        {!canManage ? (
+          <ReadOnlyNotice what="The simulation" role={ROLE_PROFILES[role].label} />
+        ) : null}
       </div>
     </Card>
   );
@@ -331,7 +381,8 @@ function TypeControlCard({
   type: AssetType;
   onResult: (tone: 'ok' | 'error', text: string) => void;
 }) {
-  const { controls, portfolio, setControls } = useStore();
+  const { controls, portfolio, setControls, allows, role } = useStore();
+  const canManage = allows('controls:manage');
   const server = controls.find((row) => row.type === type);
   const [draft, setDraft] = useState<TypeControls | null>(server ?? null);
   const dirty = useRef(false);
@@ -375,6 +426,7 @@ function TypeControlCard({
         <h3>{typeLabel(type)}</h3>
         <Switch
           checked={draft.tradingEnabled}
+          disabled={!canManage}
           onChange={(tradingEnabled) => push({ tradingEnabled }, true)}
           onLabel="Trading on"
           offLabel="Trading off"
@@ -415,6 +467,7 @@ function TypeControlCard({
           max={1}
           step={0.01}
           onChange={(targetAllocation) => push({ targetAllocation })}
+          disabled={!canManage}
         />
         <SliderField
           label="Max single position"
@@ -424,6 +477,7 @@ function TypeControlCard({
           max={1}
           step={0.01}
           onChange={(maxPositionPct) => push({ maxPositionPct })}
+          disabled={!canManage}
           hint="Buys that would breach this are rejected by the API."
         />
         <SliderField
@@ -434,6 +488,7 @@ function TypeControlCard({
           max={0.25}
           step={0.005}
           onChange={(moveAlertPct) => push({ moveAlertPct })}
+          disabled={!canManage}
         />
         <SliderField
           label="Stop-loss alert"
@@ -443,6 +498,7 @@ function TypeControlCard({
           max={0.6}
           step={0.01}
           onChange={(stopLossPct) => push({ stopLossPct })}
+          disabled={!canManage}
         />
         <SliderField
           label="Volatility factor"
@@ -452,8 +508,10 @@ function TypeControlCard({
           max={3}
           step={0.05}
           onChange={(volatilityFactor) => push({ volatilityFactor })}
+          disabled={!canManage}
           hint="Scales how hard this type moves in the simulation."
         />
+        {!canManage ? <ReadOnlyNotice what="These limits" role={ROLE_PROFILES[role].label} /> : null}
       </div>
     </section>
   );
@@ -477,7 +535,8 @@ function InstrumentBook({
   types: Set<AssetType>;
   onResult: (tone: 'ok' | 'error', text: string) => void;
 }) {
-  const { instruments, portfolio, setInstruments } = useStore();
+  const { instruments, portfolio, setInstruments, allows, role } = useStore();
+  const canManage = allows('instruments:manage');
   const [form, setForm] = useState<NewInstrument>(BLANK);
   const [busy, setBusy] = useState(false);
 
@@ -525,8 +584,15 @@ function InstrumentBook({
   return (
     <Card
       title="Instrument book"
-      subtitle="Add a stock, reclassify it, suspend it, or drop it once the position is closed."
+      subtitle={
+        canManage
+          ? 'Add a stock, reclassify it, suspend it, or drop it once the position is closed.'
+          : 'The book, read-only for this role.'
+      }
     >
+      {!canManage ? <ReadOnlyNotice what="The instrument book" role={ROLE_PROFILES[role].label} /> : null}
+
+      {canManage ? (
       <form className="row" onSubmit={add} style={{ margin: '12px 0 16px', alignItems: 'flex-end' }}>
         <div className="field" style={{ flex: '0 1 110px' }}>
           <label htmlFor="new-symbol">Symbol</label>
@@ -591,6 +657,7 @@ function InstrumentBook({
           Add stock
         </button>
       </form>
+      ) : null}
 
       {rows.length === 0 ? (
         <div className="empty">No instruments in the selected stock types.</div>
@@ -628,6 +695,7 @@ function InstrumentBook({
                       <select
                         id={`type-${instrument.id}`}
                         value={instrument.type}
+                        disabled={!canManage}
                         onChange={(e) => change(instrument, { type: e.target.value as AssetType })}
                         style={{ width: 'auto', padding: '4px 6px', fontSize: 12.5 }}
                       >
@@ -643,6 +711,7 @@ function InstrumentBook({
                     <td style={{ textAlign: 'left' }}>
                       <Switch
                         checked={instrument.active}
+                        disabled={!canManage}
                         onChange={(active) => change(instrument, { active })}
                         onLabel="Active"
                         offLabel="Suspended"
@@ -652,8 +721,14 @@ function InstrumentBook({
                       <button
                         type="button"
                         className="btn btn-sm btn-danger"
-                        disabled={held > 0}
-                        title={held > 0 ? 'Sell the position before removing it.' : undefined}
+                        disabled={held > 0 || !canManage}
+                        title={
+                          !canManage
+                            ? `The ${ROLE_PROFILES[role].label.toLowerCase()} role cannot change the book.`
+                            : held > 0
+                              ? 'Sell the position before removing it.'
+                              : undefined
+                        }
                         onClick={() => remove(instrument)}
                       >
                         Remove
@@ -715,7 +790,7 @@ function OrdersCard() {
       {recent.length === 0 ? (
         <div className="empty">No orders yet. Use the trade ticket above.</div>
       ) : (
-        <div className="table-wrap" style={{ maxHeight: 280, overflowY: 'auto' }}>
+        <div className="table-wrap table-scroll" style={{ maxHeight: 280, overflowY: 'auto' }}>
           <table className="data">
             <thead>
               <tr>

@@ -233,3 +233,111 @@ export interface PortfolioSnapshot {
   holdings: HoldingView[];
   byType: TypeSummary[];
 }
+
+/* ---------------------------------------------------------------- access */
+
+/** Who is using the app. The role decides what the API will let through. */
+export const ROLES = ['TRADER', 'RISK_MANAGER', 'AUDITOR'] as const;
+export type Role = (typeof ROLES)[number];
+
+/** Every guarded capability in the app. A route names the one it needs. */
+export const PERMISSIONS = [
+  'view',
+  'trade',
+  'instruments:manage',
+  'controls:manage',
+  'engine:manage',
+  'alerts:ack',
+  'audit:read',
+  'audit:note',
+  'export',
+] as const;
+export type Permission = (typeof PERMISSIONS)[number];
+
+/**
+ * The auditor reviews and signs off; it never moves money or changes a limit.
+ * It is the only role that can read the audit trail and write review notes.
+ */
+export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
+  TRADER: ['view', 'trade', 'instruments:manage', 'alerts:ack', 'export'],
+  RISK_MANAGER: [
+    'view',
+    'controls:manage',
+    'engine:manage',
+    'instruments:manage',
+    'alerts:ack',
+    'audit:read',
+    'export',
+  ],
+  AUDITOR: ['view', 'alerts:ack', 'audit:read', 'audit:note', 'export'],
+};
+
+export interface RoleProfile {
+  label: string;
+  blurb: string;
+}
+
+export const ROLE_PROFILES: Record<Role, RoleProfile> = {
+  TRADER: {
+    label: 'Trader',
+    blurb: 'Places orders and maintains the instrument book. Cannot change risk limits.',
+  },
+  RISK_MANAGER: {
+    label: 'Risk manager',
+    blurb: 'Sets the per-type limits and drives the simulation. Cannot place orders.',
+  },
+  AUDITOR: {
+    label: 'Auditor',
+    blurb: 'Read-only review. Reads the audit trail, annotates it and exports it. Cannot trade or change a limit.',
+  },
+};
+
+export function can(role: Role, permission: Permission): boolean {
+  return ROLE_PERMISSIONS[role].includes(permission);
+}
+
+export interface Identity {
+  role: Role;
+  permissions: readonly Permission[];
+  /** True when the deployment pins roles to a token, so a role cannot be self-declared. */
+  tokenEnforced: boolean;
+}
+
+/* ----------------------------------------------------------- audit trail */
+
+export const AUDIT_ACTIONS = [
+  'ORDER_PLACED',
+  'CONTROLS_CHANGED',
+  'ENGINE_CHANGED',
+  'INSTRUMENT_ADDED',
+  'INSTRUMENT_CHANGED',
+  'INSTRUMENT_REMOVED',
+  'ALERT_ACKNOWLEDGED',
+  'ACCESS_DENIED',
+] as const;
+export type AuditAction = (typeof AUDIT_ACTIONS)[number];
+
+/** A note an auditor leaves against one audit entry. */
+export interface AuditNote {
+  id: string;
+  author: Role;
+  text: string;
+  createdAt: string;
+}
+
+/** One recorded change, with enough detail to review it without the UI. */
+export interface AuditEntry {
+  id: string;
+  action: AuditAction;
+  /** The role that performed it. */
+  actor: Role;
+  /** Wall-clock time, not simulated time: an audit trail records real events. */
+  at: string;
+  /** What was touched — a symbol, an asset type, or the subsystem name. */
+  target: string;
+  /** One line a reviewer can read on its own. */
+  summary: string;
+  /** Changed fields, old and new, for anything that edits settings. */
+  changes?: Array<{ field: string; from: string; to: string }>;
+  notes: AuditNote[];
+}

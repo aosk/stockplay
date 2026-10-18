@@ -1,6 +1,8 @@
 import { NavLink, Route, Routes, Navigate } from 'react-router-dom';
+import { AuditPage } from './pages/AuditPage.js';
 import { ControlPage } from './pages/ControlPage.js';
 import { DashboardPage } from './pages/DashboardPage.js';
+import { RoleSwitcher } from './components/RoleSwitcher.js';
 import { StoreProvider, useStore, useTheme } from './lib/store.js';
 import { clockTime } from './lib/format.js';
 
@@ -41,6 +43,19 @@ function ThemeToggle() {
   );
 }
 
+function Nav() {
+  const { allows } = useStore();
+  return (
+    <nav className="nav" aria-label="Primary">
+      <NavLink to="/dashboard">Dashboard</NavLink>
+      <NavLink to="/controls">Controls</NavLink>
+      {/* The audit tab is hidden where the role cannot read the trail; the
+          server refuses it regardless, so this only saves a dead end. */}
+      {allows('audit:read') ? <NavLink to="/audit">Audit</NavLink> : null}
+    </nav>
+  );
+}
+
 function Shell() {
   return (
     <div className="app">
@@ -53,12 +68,10 @@ function Shell() {
           </span>
           StockPlay
         </span>
-        <nav className="nav" aria-label="Primary">
-          <NavLink to="/dashboard">Dashboard</NavLink>
-          <NavLink to="/controls">Controls</NavLink>
-        </nav>
+        <Nav />
         <div className="header-right">
           <ConnectionPill />
+          <RoleSwitcher />
           <ThemeToggle />
         </div>
       </header>
@@ -68,6 +81,7 @@ function Shell() {
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/controls" element={<ControlPage />} />
+          <Route path="/audit" element={<AuditPage />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </main>

@@ -9,14 +9,19 @@ import {
 } from 'react';
 import type {
   Alert,
+  AuditEntry,
   EngineSettings,
   HistoryPoint,
+  Identity,
   Instrument,
   Order,
+  Permission,
   PortfolioSnapshot,
+  Role,
   TypeControls,
 } from '../../../shared/src/types.js';
-import { api } from './api.js';
+import { api, streamUrl } from './api.js';
+import { useRole } from './useRole.js';
 
 const MAX_CLIENT_HISTORY = 480;
 
@@ -33,8 +38,19 @@ interface StoreValue {
   engine: EngineSettings | null;
   alerts: Alert[];
   orders: Order[];
+  audit: AuditEntry[];
+  /** Who the UI is acting as, and what that role may do. */
+  role: Role;
+  setRole: (next: Role) => void;
+  token: string | null;
+  setToken: (next: string | null) => void;
+  allows: (permission: Permission) => boolean;
+  /** What the server says about the active role; null until /me answers. */
+  identity: Identity | null;
   /** Re-reads everything the control page can change. */
   refresh: () => Promise<void>;
+  /** Re-reads just the audit trail, for the audit page's own filters. */
+  setAudit: (next: AuditEntry[]) => void;
   setControls: (next: TypeControls) => void;
   setEngine: (next: EngineSettings) => void;
   setAlerts: (next: Alert[]) => void;
@@ -54,10 +70,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [engine, setEngineState] = useState<EngineSettings | null>(null);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [audit, setAudit] = useState<AuditEntry[]>([]);
+  const [identity, setIdentity] = useState<Identity | null>(null);
+
+  const { role, setRole, token, setToken, allows } = useRole();
 
   const refresh = useCallback(async () => {
     try {
-      const [snap, hist, book, ctrl, eng, alertRows, orderRows] = await Promise.all([
+      const [who, snap, hist, book, ctrl, eng, alertRows, orderRows] = await Promise.all([
+        api.me(),
         api.portfolio(),
         api.history(MAX_CLIENT_HISTORY),
         api.instruments(),
@@ -66,6 +87,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         api.alerts(),
         api.orders(25),
       ]);
+      setIdentity(who);
       setPortfolio(snap);
       setHistory(hist);
       setInstruments(book);
@@ -73,6 +95,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setEngineState(eng);
       setAlerts(alertRows);
       setOrders(orderRows);
+
+      // The trail is only readable by some roles; a refusal here is expected,
+      // not an error worth surfacing on the dashboard.
+      if (who.permissions.includes('audit:read')) {
+        setAudit(await api.audit().catch(() => []));
+      } else {
+        setAudit([]);
+      }
+
       setLoadError(null);
       setReady(true);
     } catch (err) {
@@ -80,14 +111,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // Re-read on mount and whenever the role changes: what the server returns,
+  // and what it refuses, both depend on who is asking.
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+  }, [refresh, role, token]);
 
   // The live stream. EventSource reconnects on its own; we only mirror the
   // connection state so the header can say whether the numbers are moving.
   useEffect(() => {
-    const source = new EventSource('/api/stream');
+    const source = new EventSource(streamUrl());
 
     source.addEventListener('open', () => setConnection('live'));
     source.addEventListener('error', () => setConnection('down'));
@@ -133,7 +166,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     });
 
     return () => source.close();
-  }, []);
+  }, [role, token]);
 
   const setControls = useCallback((next: TypeControls) => {
     setControlsList((prev) => prev.map((row) => (row.type === next.type ? next : row)));
@@ -151,7 +184,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       engine,
       alerts,
       orders,
+      audit,
+      role,
+      setRole,
+      token,
+      setToken,
+      allows,
+      identity,
       refresh,
+      setAudit,
       setControls,
       setEngine: setEngineState,
       setAlerts,
@@ -168,6 +209,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       engine,
       alerts,
       orders,
+      audit,
+      role,
+      setRole,
+      token,
+      setToken,
+      allows,
+      identity,
       refresh,
       setControls,
     ],

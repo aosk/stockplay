@@ -183,7 +183,7 @@ export function DashboardPage() {
           {valueView === 'chart' ? (
             <ValueLineChart points={valueSeries} label="Selected value" />
           ) : (
-            <div className="table-wrap" style={{ maxHeight: 300, overflowY: 'auto' }}>
+            <div className="table-wrap table-scroll" style={{ maxHeight: 300, overflowY: 'auto' }}>
               <table className="data">
                 <caption>Every sample in the window, newest first.</caption>
                 <thead>
